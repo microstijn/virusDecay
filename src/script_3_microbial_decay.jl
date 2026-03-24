@@ -129,7 +129,7 @@ function print_tables(valid_results, rvi_df, valid_models_cache, avg_results)
     println("="^95)
 end
 
-function plot_results(avg_results, winning_obj, dat, plot_filename)
+function plot_results(avg_results, avg_preds, dat, plot_filename)
     fig = Figure(size = (800, 350), font = "Arial")
 
     # --- PANEL A: FOREST PLOT ---
@@ -148,11 +148,11 @@ function plot_results(avg_results, winning_obj, dat, plot_filename)
     scatter!(ax1, forest_data.Coef, y_points, strokewidth = 1, markersize = 12, color = :black)
 
     # --- PANEL B: OBSERVED VS PREDICTED ---
-    ax2 = Axis(fig[1, 2], title = "B: Model accuracy (Top Ranked Model)",
+    ax2 = Axis(fig[1, 2], title = "B: Model accuracy (Averaged Model)",
                xlabel = "Predicted microbial decay (k)",
                ylabel = "Observed microbial decay (k)")
 
-    preds = predict(winning_obj)
+    preds = avg_preds
     obs = dat.k_val
 
     line_range = [minimum(vcat(obs, preds)), maximum(vcat(obs, preds))]
@@ -380,18 +380,31 @@ function main()
     sort!(avg_results, :P_val)
 
     # ==========================================
-    # 7. PRINTING TABLES
+    # 7. MODEL AVERAGED PREDICTIONS
+    # ==========================================
+    avg_preds = zeros(Float64, n_obs)
+    for row in eachrow(conf_set)
+        mod = valid_models_cache[row.Type * "_" * row.Model]
+        if row.Type == "Linear"
+            pred_i = predict(mod)
+        else
+            f_temp = isempty(row.Combo) ? FormulaTerm(resp, ConstantTerm(1)) : FormulaTerm(resp, sum(Term.(row.Combo)))
+            f_schema_temp = apply_schema(f_temp, schema(dat))
+            _, X_temp = modelcols(f_schema_temp, dat)
+            pred_i = exp_func(X_temp, mod.param)
+        end
+        avg_preds .+= row.W_renorm .* pred_i
+    end
+
+    # ==========================================
+    # 8. PRINTING TABLES
     # ==========================================
     print_tables(valid_results, rvi_df, valid_models_cache, avg_results)
 
     # ==========================================
-    # 8. PLOTTING
+    # 9. PLOTTING
     # ==========================================
-    winner = valid_results[1, :]
-    winner_key = winner.Type * "_" * winner.Model
-    winning_obj = valid_models_cache[winner_key]
-
-    plot_results(avg_results, winning_obj, dat, "dashboard_microbial_decay.png")
+    plot_results(avg_results, avg_preds, dat, "dashboard_microbial_decay.png")
 end
 
 main()
